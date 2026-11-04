@@ -1,83 +1,49 @@
-Name: Build C Acoustic APK
+
+name: Build CANDS TECH EQ APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
     paths:
-      - 'app/**'
-      - '*.gradle.kts'
-      - 'gradle/**'
-      - 'settings.gradle.kts'
+      - '**.zip'
       - '.github/workflows/build-apk.yml'
-
-permissions:
-  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate Android SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          if [ -z "$SDK" ]; then
-            echo "::error::Android SDK path tidak ditemukan."
-            exit 1
-          fi
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
-
-      - name: Install Android SDK components
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
-          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
-          if [ -z "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager tidak ditemukan."
-            exit 1
-          fi
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
-
-      - name: Install Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
-      - name: Generate Gradle Wrapper if missing
-        shell: bash
+      - name: Extract project ZIP
         run: |
-          set -euo pipefail
-          if [ ! -f ./gradlew ]; then
-            echo "Gradle Wrapper belum ada; membuat wrapper menggunakan Gradle 8.9."
-            gradle wrapper --gradle-version 8.9
-          fi
-          chmod +x ./gradlew
+          mkdir source
+          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' -print -quit)
+          test -n "$ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d source
 
       - name: Build debug APK
-        shell: bash
         run: |
-          set -euo pipefail
-          ./gradlew --no-daemon assembleDebug
+          GRADLE_FILE=$(find source -type f -name 'build.gradle.kts' -path '*/app/*' -print -quit)
+          test -n "$GRADLE_FILE"
+          APP_DIR=$(dirname "$GRADLE_FILE")
+          PROJECT_DIR=$(dirname "$APP_DIR")
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: c-acoustic-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: CANDSTECH-DIAG-APK
+          path: source/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 14
