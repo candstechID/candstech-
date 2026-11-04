@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ZIP_FILE="c-acoustic-android-source.zip"
+          ZIP_FILE="candstech_diag.zip"
           if [[ ! -f "$ZIP_FILE" ]]; then
             echo "::error::File '$ZIP_FILE' tidak ditemukan di root repository. Upload ZIP ke root repository terlebih dahulu."
             exit 1
