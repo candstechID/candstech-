@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '**.kt'
-      - '**.kts'
+      - '**.zip'
       - '.github/workflows/*.yml'
 
 jobs:
@@ -24,11 +23,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Extract project ZIP
+        run: |
+          mkdir source
+          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' -print -quit)
+          test -n "$ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d source
+
       - name: Build debug APK
         run: |
-          # Cari lokasi build.gradle atau settings.gradle secara otomatis di repository
-          GRADLE_ROOT=$(find . -name "settings.gradle.kts" -o -name "settings.gradle" -print -quit)
-          PROJECT_DIR=$(dirname "$GRADLE_ROOT")
+          GRADLE_FILE=$(find source -type f -name 'build.gradle.kts' -path '*/app/*' -print -quit)
+          test -n "$GRADLE_FILE"
+          APP_DIR=$(dirname "$GRADLE_FILE")
+          PROJECT_DIR=$(dirname "$APP_DIR")
           cd "$PROJECT_DIR"
           gradle assembleDebug --stacktrace
 
@@ -37,6 +44,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CANDSTECH-DIAG-APK
-          path: '**/build/outputs/apk/debug/*.apk'
+          path: source/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           
