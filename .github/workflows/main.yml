@@ -1,5 +1,5 @@
 
-name: Build CANDS TECH EQ APK
+name: Build CANDS TECH APK
 
 on:
   workflow_dispatch:
