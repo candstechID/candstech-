@@ -26,6 +26,10 @@ jobs:
 
       - name: Build debug APK
         run: |
+          # Cari lokasi build.gradle atau settings.gradle secara otomatis di repository
+          GRADLE_ROOT=$(find . -name "settings.gradle.kts" -o -name "settings.gradle" -print -quit)
+          PROJECT_DIR=$(dirname "$GRADLE_ROOT")
+          cd "$PROJECT_DIR"
           gradle assembleDebug --stacktrace
 
       - name: Upload APK Artifact
@@ -33,6 +37,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CANDSTECH-DIAG-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: '**/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
           
