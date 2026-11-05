@@ -26,18 +26,32 @@ jobs:
       - name: Extract project ZIP
         run: |
           mkdir source
+          # Mencari file ZIP di root repository dan mengekstraknya
           ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' -print -quit)
-          test -n "$ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d source
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Mengekstrak $ZIP_FILE..."
+            unzip -q "$ZIP_FILE" -d source
+          else
+            echo "Error: File ZIP proyek tidak ditemukan!"
+            exit 1
+          fi
 
       - name: Build debug APK
         run: |
+          # Mencari lokasi file build.gradle.kts di dalam folder hasil ekstrak
           GRADLE_FILE=$(find source -type f -name 'build.gradle.kts' -path '*/app/*' -print -quit)
-          test -n "$GRADLE_FILE"
-          APP_DIR=$(dirname "$GRADLE_FILE")
-          PROJECT_DIR=$(dirname "$APP_DIR")
-          cd "$PROJECT_DIR"
-          gradle assembleDebug --stacktrace
+          if [ -n "$GRADLE_FILE" ]; then
+            APP_DIR=$(dirname "$GRADLE_FILE")
+            PROJECT_DIR=$(dirname "$APP_DIR")
+            echo "Berpindah ke direktori proyek: $PROJECT_DIR"
+            cd "$PROJECT_DIR"
+            
+            # Eksekusi build APK
+            gradle assembleDebug --stacktrace
+          else
+            echo "Error: Struktur proyek Gradle tidak ditemukan di dalam ZIP."
+            exit 1
+          fi
 
       - name: Upload APK Artifact
         if: success()
