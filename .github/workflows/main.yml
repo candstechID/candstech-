@@ -30,13 +30,13 @@ jobs:
           test -n "$ZIP_FILE"
           unzip -q "$ZIP_FILE" -d source
 
-      - name: Auto-Fix Semua Kode (Wajib Berhasil)
+      - name: Auto-Fix Semua Kode & Import USB
         run: |
           APP_GRADLE=$(find source -type f -name 'build.gradle.kts' -path '*/app/*' -print -quit)
           APP_DIR=$(dirname "$APP_GRADLE")
           PROJECT_DIR=$(dirname "$APP_DIR")
           
-          # 1. Suntik repositori JitPack ke settings.gradle.kts
+          # 1. Pastikan settings.gradle.kts bersih dan ada JitPack
           cat << 'EOF' > "$PROJECT_DIR/settings.gradle.kts"
           pluginManagement {
               repositories {
@@ -63,7 +63,7 @@ jobs:
           include(":app")
           EOF
           
-          # 2. Suntik versi Plugin dan USB Serial ke app/build.gradle.kts
+          # 2. Pastikan app/build.gradle.kts sinkron
           cat << 'EOF' > "$APP_DIR/build.gradle.kts"
           plugins {
               id("com.android.application") version "8.7.3"
@@ -117,18 +117,19 @@ jobs:
               debugImplementation("androidx.compose.ui:ui-tooling")
           }
           EOF
-          
-          # 3. Suntik perbaikan kode K-Line
-          KLINE_FILE=$(find "$APP_DIR" -type f -name 'HondaKLineManager.kt' -print -quit)
-          if [ -n "$KLINE_FILE" ]; then
-            cat << 'EOF' > "$KLINE_FILE"
+
+          # 3. Timpa file HondaKLineManager.kt dengan import yang 100% BENAR (tanpa angka 85)
+          KLINE_DIR=$(find source -type d -name 'data' -path '*/app/src/main/java/*/data' -print -quit)
+          if [ -n "$KLINE_DIR" ]; then
+            cat << 'EOF' > "$KLINE_DIR/HondaKLineManager.kt"
           package com.cands.ecureader.data
+
           import android.hardware.usb.UsbDevice
           import android.hardware.usb.UsbDeviceConnection
           import android.hardware.usb.UsbManager
           import android.util.Log
-          import com.felhr85.usbserial.UsbSerialDevice
-          import com.felhr85.usbserial.UsbSerialInterface
+          import com.felhr.usbserial.UsbSerialDevice
+          import com.felhr.usbserial.UsbSerialInterface
           import kotlinx.coroutines.Dispatchers
           import kotlinx.coroutines.withContext
 
@@ -137,22 +138,28 @@ jobs:
               private var connection: UsbDeviceConnection? = null
               var isConnected: Boolean = false
                   private set
+
               suspend fun connect(device: UsbDevice): Boolean = withContext(Dispatchers.IO) {
                   try {
                       connection = usbManager.openDevice(device)
                       if (connection == null) return@withContext false
+
                       val deviceInstance = UsbSerialDevice.createUsbSerialDevice(device, connection)
                       serialDevice = deviceInstance
+                      
                       if (deviceInstance == null || !deviceInstance.open()) {
                           connection?.close()
                           return@withContext false
                       }
+
                       deviceInstance.setBaudRate(10400)
                       deviceInstance.setDataBits(UsbSerialInterface.DATA_BITS_8)
                       deviceInstance.setStopBits(UsbSerialInterface.STOP_BITS_1)
                       deviceInstance.setParity(UsbSerialInterface.PARITY_NONE)
                       deviceInstance.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF)
+
                       performHondaFastInit(deviceInstance)
+
                       isConnected = true
                       true
                   } catch (e: Exception) {
@@ -161,6 +168,7 @@ jobs:
                       false
                   }
               }
+
               private suspend fun performHondaFastInit(device: UsbSerialDevice) = withContext(Dispatchers.IO) {
                   try {
                       device.setBreak(true)
@@ -172,12 +180,14 @@ jobs:
                       Log.e("HondaKLineManager", "Fast init failed", e)
                   }
               }
+
               suspend fun sendCommand(hexCommand: String): ByteArray? = withContext(Dispatchers.IO) {
                   val device = serialDevice
                   if (!isConnected || device == null) return@withContext null
                   try {
                       val bytes = hexStringToByteArray(hexCommand)
                       device.syncWrite(bytes, 1000)
+                      
                       val buffer = ByteArray(64)
                       val n = device.syncRead(buffer, 500)
                       if (n > 0) {
@@ -188,6 +198,7 @@ jobs:
                   }
                   return@withContext null
               }
+
               fun disconnect() {
                   try {
                       serialDevice?.close()
@@ -197,6 +208,7 @@ jobs:
                   connection = null
                   isConnected = false
               }
+
               private fun hexStringToByteArray(s: String): ByteArray {
                   val clean = s.replace(" ", "")
                   val len = clean.length
