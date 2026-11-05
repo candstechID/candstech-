@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '**.zip'
+      - '**.kt'
+      - '**.kts'
       - '.github/workflows/*.yml'
 
 jobs:
@@ -23,187 +24,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Extract project ZIP
-        run: |
-          mkdir source
-          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' -print -quit)
-          test -n "$ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d source
-
-      - name: Auto-Fix & Inject Accurate Honda KLine Protocol
-        run: |
-          APP_GRADLE=$(find source -type f -name 'build.gradle.kts' -path '*/app/*' -print -quit)
-          APP_DIR=$(dirname "$APP_GRADLE")
-          PROJECT_DIR=$(dirname "$APP_DIR")
-          
-          KLINE_DIR=$(find source -type d -name 'data' -path '*/app/src/main/java/*/data' -print -quit)
-          if [ -n "$KLINE_DIR" ]; then
-            cat << 'EOF' > "$KLINE_DIR/HondaKLineManager.kt"
-          package com.cands.ecureader.data
-
-          import android.hardware.usb.UsbDevice
-          import android.hardware.usb.UsbDeviceConnection
-          import android.hardware.usb.UsbManager
-          import android.util.Log
-          import com.felhr.usbserial.UsbSerialDevice
-          import com.felhr.usbserial.UsbSerialInterface
-          import kotlinx.coroutines.Dispatchers
-          import kotlinx.coroutines.withContext
-
-          class HondaKLineManager(private val usbManager: UsbManager) {
-              private var serialDevice: UsbSerialDevice? = null
-              private var connection: UsbDeviceConnection? = null
-              var isConnected: Boolean = false
-                  private set
-
-              suspend fun connect(device: UsbDevice): Boolean = withContext(Dispatchers.IO) {
-                  try {
-                      connection = usbManager.openDevice(device)
-                      if (connection == null) return@withContext false
-
-                      val deviceInstance = UsbSerialDevice.createUsbSerialDevice(device, connection)
-                      serialDevice = deviceInstance
-                      
-                      if (deviceInstance == null || !deviceInstance.open()) {
-                          connection?.close()
-                          return@withContext false
-                      }
-
-                      // Baud rate standar K-Line Honda PGM-FI: 10400
-                      deviceInstance.setBaudRate(10400)
-                      deviceInstance.setDataBits(UsbSerialInterface.DATA_BITS_8)
-                      deviceInstance.setStopBits(UsbSerialInterface.STOP_BITS_1)
-                      deviceInstance.setParity(UsbSerialInterface.PARITY_NONE)
-                      deviceInstance.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF)
-
-                      // Jalankan Fast Init Honda K-Line
-                      performHondaFastInit(deviceInstance)
-
-                      isConnected = true
-                      true
-                  } catch (e: Exception) {
-                      Log.e("HondaKLineManager", "Connection error", e)
-                      disconnect()
-                      false
-                  }
-              }
-
-              private suspend fun performHondaFastInit(device: UsbSerialDevice) = withContext(Dispatchers.IO) {
-                  try {
-                      // Fast Initialization Pulsa K-Line (25ms LOW, 25ms HIGH)
-                      device.setBreak(true)
-                      kotlinx.coroutines.delay(25)
-                      device.setBreak(false)
-                      kotlinx.coroutines.delay(25)
-                      
-                      // Kirim Honda Wakeup Init Frame
-                      val wakeupBytes = hexStringToByteArray("FE 04 72 8C")
-                      device.syncWrite(wakeupBytes, 300)
-                      kotlinx.coroutines.delay(50)
-                      
-                      Log.d("HondaKLineManager", "Honda Fast Init & Wakeup sent successfully.")
-                  } catch (e: Exception) {
-                      Log.e("HondaKLineManager", "Fast init failed", e)
-                  }
-              }
-
-              suspend fun requestLiveData(): Map<String, Any> = withContext(Dispatchers.IO) {
-                  val result = mutableMapOf<String, Any>(
-                      "rpm" to "0",
-                      "tps" to "0°",
-                      "temp" to "--°C",
-                      "voltage" to "13.2 V"
-                  )
-                  val device = serialDevice
-                  if (!isConnected || device == null) return@withContext result
-
-                  try {
-                      // Frame request live data standar Honda PGM-FI KWP2000
-                      val requestBytes = hexStringToByteArray("72 05 71 17 01")
-                      device.syncWrite(requestBytes, 300)
-
-                      val buffer = ByteArray(64)
-                      val bytesRead = device.syncRead(buffer, 300)
-                      if (bytesRead > 0) {
-                          val response = buffer.copyOfRange(0, bytesRead)
-                          Log.d("HondaKLineManager", "ECU Live Data Response: ${response.contentToString()}")
-                          
-                          // Jika ECU merespon dengan data biner sensor (panjang frame mencukupi)
-                          if (response.size >= 12) {
-                              // Contoh parsing byte ke-RPM dan TPS sesuai tabel PGM-FI
-                              val rawRpm = ((response[6].toInt() and 0xFF) shl 8) or (response[7].toInt() and 0xFF)
-                              result["rpm"] = if (rawRpm > 0) (rawRpm / 4).toString() else "0"
-                              
-                              val rawTps = response[8].toInt() and 0xFF
-                              result["tps"] = "$rawTps°"
-                              
-                              val rawTemp = (response[10].toInt() and 0xFF) - 40
-                              result["temp"] = "$rawTemp°C"
-                          }
-                      }
-                  } catch (e: Exception) {
-                      Log.e("HondaKLineManager", "Error reading live data", e)
-                  }
-                  return@withContext result
-              }
-
-              suspend fun sendCommand(hexCommand: String): ByteArray? = withContext(Dispatchers.IO) {
-                  val device = serialDevice
-                  if (!isConnected || device == null) return@withContext null
-                  try {
-                      val bytes = hexStringToByteArray(hexCommand)
-                      device.syncWrite(bytes, 1000)
-                      
-                      val buffer = ByteArray(64)
-                      val n = device.syncRead(buffer, 500)
-                      if (n > 0) {
-                          return@withContext buffer.copyOfRange(0, n)
-                      }
-                  } catch (e: Exception) {
-                      Log.e("HondaKLineManager", "Command error: $hexCommand", e)
-                  }
-                  return@withContext null
-              }
-
-              fun disconnect() {
-                  try {
-                      serialDevice?.close()
-                      connection?.close()
-                  } catch (_: Exception) {}
-                  serialDevice = null
-                  connection = null
-                  isConnected = false
-              }
-
-              private fun hexStringToByteArray(s: String): ByteArray {
-                  val clean = s.replace(" ", "")
-                  val len = clean.length
-                  val data = ByteArray(len / 2)
-                  var i = 0
-                  while (i < len) {
-                      data[i / 2] = ((Character.digit(clean[i], 16) shl 4) + Character.digit(clean[i + 1], 16)).toByte()
-                      i += 2
-                  }
-                  return data
-              }
-          }
-          EOF
-          fi
-
       - name: Build debug APK
         run: |
-          GRADLE_FILE=$(find source -type f -name 'build.gradle.kts' -path '*/app/*' -print -quit)
-          test -n "$GRADLE_FILE"
-          APP_DIR=$(dirname "$GRADLE_FILE")
-          PROJECT_DIR=$(dirname "$APP_DIR")
-          cd "$PROJECT_DIR"
           gradle assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: CANDSTECH-DIAG-APK
-          path: source/**/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           
